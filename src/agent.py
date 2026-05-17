@@ -7,7 +7,8 @@ from src.catalog import get_catalog
 from src.retriever import retrieve_candidates, build_index
 
 # Provider detection (check all common env vars)
-LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "auto")  # "openai", "gemini", "groq", "auto"
+LLM_PROVIDER_RAW = os.environ.get("LLM_PROVIDER", "auto")  # "openai", "gemini", "groq", "auto"
+LLM_PROVIDER = LLM_PROVIDER_RAW
 API_KEY = os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GROQ_API_KEY", "")
 MODEL = os.environ.get("LLM_MODEL", "auto")
 BASE_URL = os.environ.get("LLM_BASE_URL", "")  # For OpenAI-compatible providers (OpenRouter, etc.)
@@ -18,13 +19,13 @@ if LLM_PROVIDER == "auto":
         LLM_PROVIDER = "gemini"
     elif os.environ.get("GROQ_API_KEY"):
         LLM_PROVIDER = "groq"
-    elif os.environ.get("OPENAI_API_KEY") or os.environ.get("LLM_API_KEY"):
+    elif os.environ.get("OPENAI_API_KEY"):
         LLM_PROVIDER = "openai"
-    else:
-        LLM_PROVIDER = "openai"  # default
-    # If LLM_API_KEY is set but no specific provider, default to gemini (works with any API key)
-    if not os.environ.get("LLM_PROVIDER") and os.environ.get("LLM_API_KEY"):
+    elif os.environ.get("LLM_API_KEY"):
+        # Default to gemini when only LLM_API_KEY is set (e.g. on Render)
         LLM_PROVIDER = "gemini"
+    else:
+        LLM_PROVIDER = "openai"  # last resort
 
 # Resolve model
 if MODEL == "auto":
