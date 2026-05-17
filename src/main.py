@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 
@@ -6,6 +7,13 @@ from src.catalog import load_catalog
 from src.agent import call_agent, init
 
 app = FastAPI(title="SHL Assessment Recommender")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 load_catalog()
 init()

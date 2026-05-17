@@ -7,7 +7,7 @@ Stateless FastAPI service. `GET /health` for readiness, `POST /chat` for agent i
 Three-layer architecture:
 
 1. **Retrieval** — BM25 keyword search over 377 catalog items, pre-indexed at startup. Domain detection + anchor item injection boosts recall to 0.78@15. Top-15 candidates passed to LLM.
-2. **LLM Decision** — Groq Llama 3.3 70B receives 15 candidates + conversation history + behavioral rules. Returns structured JSON via `response_format: json_object`.
+2. **LLM Decision** — Google Gemini 2.0 Flash receives 15 candidates + conversation history + behavioral rules. Returns structured JSON via `response_mime_type: application/json`.
 3. **Validation** — Post-LLM layer verifies each recommendation name against catalog. Hallucinated items dropped. URL and test_type mapped from catalog truth.
 
 ## Retrieval Setup
@@ -31,7 +31,7 @@ Rules encode all four behaviors (clarify, recommend, refine, compare) plus scope
 - Llama 8B models — failed on multi-turn reasoning, vague query detection, constraint refinement. Always asked clarifying questions, never committed to recommendations.
 - `rank-bm25` library — had to implement custom BM25 for startup index build and scoring control.
 
-**Token budget**: ~1.8K input + ~400 output per call. 33 eval turns × ~2.2K = ~73K, fits under Groq 100K daily free tier.
+**Token budget**: ~1.8K input + ~400 output per call. Gemini free tier handles 33 eval turns comfortably.
 
 ## Evaluation
 
