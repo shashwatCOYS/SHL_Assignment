@@ -86,10 +86,15 @@ def run_trace(trace_id: str, messages: List[Dict[str, str]]) -> Dict[str, Any]:
                 json={"messages": messages},
                 timeout=120,
             )
+            if resp.status_code == 429:
+                wait = 7
+                print(f"    {trace_id} 429. Waiting {wait}s", flush=True)
+                time.sleep(wait)
+                continue
             return resp.json()
         except Exception as e:
             print(f"    {trace_id} attempt {attempt+1} failed: {e}", flush=True)
-            time.sleep(3)
+            time.sleep(7)
     return {"reply": "timeout", "recommendations": [], "end_of_conversation": False}
 
 
@@ -151,6 +156,9 @@ def evaluate():
         total_recall += best_recall
         print(f"  {trace_id} best recall: {best_recall:.2f}", flush=True)
         print()
+
+        # Stay under Gemini free tier rate limit (~10 req/min)
+        time.sleep(7)
 
     mean_recall = total_recall / len(CONVERSATION_TRACES)
     print("=" * 50)
