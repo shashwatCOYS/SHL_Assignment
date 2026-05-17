@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pdf
+*.zip
+*.md
+!approach.md
+!.gitignore
+.env
+.venv/
+*.egg-info/
+/tmp/
+/tmp/shl_server.log
