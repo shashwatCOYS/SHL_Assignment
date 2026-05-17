@@ -1,6 +1,8 @@
 import json
 import os
 import time
+import urllib.request
+import urllib.error
 from typing import List, Dict, Any
 
 from src.catalog import get_catalog
@@ -47,8 +49,7 @@ def get_client():
         return _client
 
     if LLM_PROVIDER == "gemini":
-        from google import genai
-        _client = genai.Client(api_key=API_KEY)
+        _client = None  # Direct HTTP, no SDK
     else:
         # OpenAI-compatible (openai, groq, openrouter, etc.)
         from openai import OpenAI
@@ -187,17 +188,20 @@ Respond with valid JSON only. No markdown, no code blocks, no explanation."""
 
 def _call_gemini(client, system_prompt: str, prompt: str) -> Dict[str, Any]:
     try:
-        response = client.models.generate_content(
-            model=MODEL,
-            contents=prompt,
-            config={
-                "system_instruction": system_prompt,
-                "temperature": 0.1,
-                "max_output_tokens": 1500,
-                "response_mime_type": "application/json",
-            },
-        )
-        return _parse_response(response.text)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent?key={API_KEY}"
+        body = json.dumps({
+            "system_instruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 1500, "responseMimeType": "application/json"},
+        }).encode()
+        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read())
+        raw = result["candidates"][0]["content"]["parts"][0]["text"]
+        return _parse_response(raw)
+    except urllib.error.HTTPError as e:
+        print(f"Gemini HTTP error: {e.code} {e.reason}", flush=True)
+        return _error_response("service is busy")
     except Exception as e:
         print(f"Gemini error: {e}", flush=True)
         return _error_response("service is busy")
