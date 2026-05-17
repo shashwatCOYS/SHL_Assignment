@@ -3,7 +3,7 @@ import requests
 import time
 from typing import List, Dict, Any
 
-BASE_URL = "http://localhost:8004"
+BASE_URL = "https://shl-recommender-uxfj.onrender.com"
 
 EXPECTED_SHORTLISTS: Dict[str, List[str]] = {
     "C1": ["Occupational Personality Questionnaire OPQ32r", "OPQ Universal Competency Report 2.0", "OPQ Leadership Report"],

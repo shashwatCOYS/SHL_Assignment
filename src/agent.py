@@ -138,7 +138,7 @@ Total turns: {turn_count // 2}
 Respond with valid JSON only. No markdown, no code blocks, no explanation."""
 
     client = get_gemini_client()
-    for attempt in range(15):
+    for attempt in range(3):
         try:
             response = client.models.generate_content(
                 model=MODEL,
@@ -156,11 +156,11 @@ Respond with valid JSON only. No markdown, no code blocks, no explanation."""
         except Exception as e:
             err_str = str(e).lower()
             if "rate" in err_str or "429" in err_str:
-                wait = min(60, 5 + attempt * 5)
+                wait = min(15, 3 * (attempt + 1))
                 print(f"Rate limit (attempt {attempt+1}). Waiting {wait}s", flush=True)
                 time.sleep(wait)
             elif "503" in err_str or "unavailable" in err_str:
-                time.sleep(10)
+                time.sleep(5)
             else:
                 print(f"Unexpected error: {e}", flush=True)
                 return {
