@@ -1,23 +1,57 @@
 import json
 import os
 import time
-import re
 from typing import List, Dict, Any
-from google import genai
 
 from src.catalog import get_catalog
 from src.retriever import retrieve_candidates, build_index
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-MODEL = "gemini-2.5-flash"
+# Provider detection (check all common env vars)
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "auto")  # "openai", "gemini", "groq", "auto"
+API_KEY = os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GROQ_API_KEY", "")
+MODEL = os.environ.get("LLM_MODEL", "auto")
+BASE_URL = os.environ.get("LLM_BASE_URL", "")  # For OpenAI-compatible providers (OpenRouter, etc.)
 
-_client: genai.Client | None = None
+# Resolve provider
+if LLM_PROVIDER == "auto":
+    if os.environ.get("GEMINI_API_KEY") and not os.environ.get("OPENAI_API_KEY"):
+        LLM_PROVIDER = "gemini"
+    elif os.environ.get("GROQ_API_KEY"):
+        LLM_PROVIDER = "groq"
+    elif os.environ.get("OPENAI_API_KEY") or os.environ.get("LLM_API_KEY"):
+        LLM_PROVIDER = "openai"
+    else:
+        LLM_PROVIDER = "openai"  # default
+
+# Resolve model
+if MODEL == "auto":
+    if LLM_PROVIDER == "gemini":
+        MODEL = "gemini-2.5-flash"
+    elif LLM_PROVIDER == "groq":
+        MODEL = "llama-3.3-70b-versatile"
+    else:
+        MODEL = "gpt-4o-mini"
+
+_client = None
 
 
-def get_gemini_client() -> genai.Client:
+def get_client():
     global _client
-    if _client is None:
-        _client = genai.Client(api_key=GEMINI_API_KEY)
+    if _client is not None:
+        return _client
+
+    if LLM_PROVIDER == "gemini":
+        from google import genai
+        _client = genai.Client(api_key=API_KEY)
+    else:
+        # OpenAI-compatible (openai, groq, openrouter, etc.)
+        from openai import OpenAI
+        if LLM_PROVIDER == "groq":
+            _client = OpenAI(api_key=API_KEY, base_url="https://api.groq.com/openai/v1")
+        elif BASE_URL:
+            _client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
+        else:
+            _client = OpenAI(api_key=API_KEY)
     return _client
 
 
@@ -77,9 +111,9 @@ def _count_user_signals(text: str) -> int:
         signals += 1
     if any(w in t for w in ["english", "spanish", "french", "german", "chinese", "hindi", "japanese", "indian", "australian"]):
         signals += 1
-    if any(w in t for w in ["hiring", "screening", "assessment", "battery", "test", "solution", "hire", "fill", "role"]):
+    if any(w in t for w in ["hiring", "screening", "assessment", "assess", "battery", "test", "solution", "hire", "fill", "role", "evaluating", "interview", "candidate", "recruit"]):
         signals += 1
-    if len(t.split()) > 15:
+    if len(t.split()) > 10:
         signals += 1
     return signals
 
@@ -137,7 +171,15 @@ Total turns: {turn_count // 2}
 
 Respond with valid JSON only. No markdown, no code blocks, no explanation."""
 
-    client = get_gemini_client()
+    client = get_client()
+
+    if LLM_PROVIDER == "gemini":
+        return _call_gemini(client, system_prompt, prompt)
+    else:
+        return _call_openai_compat(client, system_prompt, prompt)
+
+
+def _call_gemini(client, system_prompt: str, prompt: str) -> Dict[str, Any]:
     for attempt in range(3):
         try:
             response = client.models.generate_content(
@@ -150,32 +192,55 @@ Respond with valid JSON only. No markdown, no code blocks, no explanation."""
                     "response_mime_type": "application/json",
                 },
             )
-            raw = response.text
-            result = _parse_response(raw, messages)
-            return result
+            return _parse_response(response.text)
         except Exception as e:
             err_str = str(e).lower()
             if "rate" in err_str or "429" in err_str:
-                wait = min(15, 3 * (attempt + 1))
+                wait = min(10, 3 * (attempt + 1))
                 print(f"Rate limit (attempt {attempt+1}). Waiting {wait}s", flush=True)
                 time.sleep(wait)
-            elif "503" in err_str or "unavailable" in err_str:
-                time.sleep(5)
             else:
-                print(f"Unexpected error: {e}", flush=True)
-                return {
-                    "reply": "I apologize, I had a processing error. Please try again.",
-                    "recommendations": [],
-                    "end_of_conversation": False,
-                }
+                print(f"Gemini error: {e}", flush=True)
+                break
+    return _error_response("service is busy")
+
+
+def _call_openai_compat(client, system_prompt: str, prompt: str) -> Dict[str, Any]:
+    for attempt in range(3):
+        try:
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.1,
+                max_tokens=1500,
+                response_format={"type": "json_object"},
+            )
+            raw = response.choices[0].message.content
+            return _parse_response(raw)
+        except Exception as e:
+            err_str = str(e).lower()
+            if "rate" in err_str or "429" in err_str:
+                wait = min(10, 3 * (attempt + 1))
+                print(f"Rate limit (attempt {attempt+1}). Waiting {wait}s", flush=True)
+                time.sleep(wait)
+            else:
+                print(f"LLM error: {e}", flush=True)
+                break
+    return _error_response("service is busy")
+
+
+def _error_response(msg: str) -> Dict[str, Any]:
     return {
-        "reply": "I apologize, service is busy. Please try again shortly.",
+        "reply": f"I apologize, {msg}. Please try again shortly.",
         "recommendations": [],
         "end_of_conversation": False,
     }
 
 
-def _parse_response(raw: str, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+def _parse_response(raw: str) -> Dict[str, Any]:
     raw = raw.strip()
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1]
@@ -185,11 +250,7 @@ def _parse_response(raw: str, messages: List[Dict[str, str]]) -> Dict[str, Any]:
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        return {
-            "reply": "I apologize, I had a processing error. Could you rephrase?",
-            "recommendations": [],
-            "end_of_conversation": False,
-        }
+        return _error_response("I had a processing error. Could you rephrase?")
 
     recommendations = data.get("recommendations", [])
     if not isinstance(recommendations, list):
@@ -200,28 +261,31 @@ def _parse_response(raw: str, messages: List[Dict[str, str]]) -> Dict[str, Any]:
     url_map = {item["url"]: item for item in catalog}
 
     validated: List[Dict[str, str]] = []
+    seen_names = set()
     for rec in recommendations[:10]:
         if not isinstance(rec, dict):
             continue
         name = rec.get("name", "")
-        if name in name_url_map:
-            item = name_url_map[name]
-            validated.append({
-                "name": item["name"],
-                "url": item["url"],
-                "test_type": item["test_type"],
-            })
-        elif rec.get("url") and rec["url"] in url_map:
-            item = url_map[rec["url"]]
-            validated.append({
-                "name": item["name"],
-                "url": item["url"],
-                "test_type": item["test_type"],
-            })
+        if name and name not in seen_names:
+            if name in name_url_map:
+                item = name_url_map[name]
+                validated.append({
+                    "name": item["name"],
+                    "url": item["url"],
+                    "test_type": item["test_type"],
+                })
+                seen_names.add(name)
+            elif rec.get("url") and rec["url"] in url_map:
+                item = url_map[rec["url"]]
+                if item["name"] not in seen_names:
+                    validated.append({
+                        "name": item["name"],
+                        "url": item["url"],
+                        "test_type": item["test_type"],
+                    })
+                    seen_names.add(item["name"])
 
     end_conv = data.get("end_of_conversation", False)
-    if len(messages) >= 14:
-        end_conv = True
 
     return {
         "reply": data.get("reply", ""),
