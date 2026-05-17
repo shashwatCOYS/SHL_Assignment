@@ -22,6 +22,9 @@ if LLM_PROVIDER == "auto":
         LLM_PROVIDER = "openai"
     else:
         LLM_PROVIDER = "openai"  # default
+    # If LLM_API_KEY is set but no specific provider, default to gemini (works with any API key)
+    if not os.environ.get("LLM_PROVIDER") and os.environ.get("LLM_API_KEY"):
+        LLM_PROVIDER = "gemini"
 
 # Resolve model
 if MODEL == "auto":
@@ -31,6 +34,8 @@ if MODEL == "auto":
         MODEL = "llama-3.3-70b-versatile"
     else:
         MODEL = "gpt-4o-mini"
+
+print(f"[agent] Provider: {LLM_PROVIDER}, Model: {MODEL}, Key set: {bool(API_KEY)}", flush=True)
 
 _client = None
 
