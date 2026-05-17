@@ -180,29 +180,21 @@ Respond with valid JSON only. No markdown, no code blocks, no explanation."""
 
 
 def _call_gemini(client, system_prompt: str, prompt: str) -> Dict[str, Any]:
-    for attempt in range(3):
-        try:
-            response = client.models.generate_content(
-                model=MODEL,
-                contents=prompt,
-                config={
-                    "system_instruction": system_prompt,
-                    "temperature": 0.1,
-                    "max_output_tokens": 1500,
-                    "response_mime_type": "application/json",
-                },
-            )
-            return _parse_response(response.text)
-        except Exception as e:
-            err_str = str(e).lower()
-            if "rate" in err_str or "429" in err_str:
-                wait = min(10, 3 * (attempt + 1))
-                print(f"Rate limit (attempt {attempt+1}). Waiting {wait}s", flush=True)
-                time.sleep(wait)
-            else:
-                print(f"Gemini error: {e}", flush=True)
-                break
-    return _error_response("service is busy")
+    try:
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=prompt,
+            config={
+                "system_instruction": system_prompt,
+                "temperature": 0.1,
+                "max_output_tokens": 1500,
+                "response_mime_type": "application/json",
+            },
+        )
+        return _parse_response(response.text)
+    except Exception as e:
+        print(f"Gemini error: {e}", flush=True)
+        return _error_response("service is busy")
 
 
 def _call_openai_compat(client, system_prompt: str, prompt: str) -> Dict[str, Any]:
